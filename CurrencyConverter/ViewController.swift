@@ -17,20 +17,34 @@ struct State {
     enum Message {
         case setInputText(String?)
         case dataReceived(Data?)
+        case reload
     }
 
-    mutating func send(_ message: Message) {
+    enum Command {
+        case loadData(url: URL, message: (Data?) -> Message)
+    }
+
+    mutating func send(_ message: Message) -> Command? {
         switch message {
+
         case .setInputText(let text):
             inputText = text
+            return nil
+
         case .dataReceived(let data):
             guard
                 let data = data,
                 let json = try? JSONSerialization.jsonObject(with: data, options: []),
                 let dict = json as? [String : Any],
                 let dataDict = dict["rates"] as? [String : Double]
-                else { return }
+                else { return nil }
             rate = dataDict["USD"]
+            return nil
+
+        case .reload:
+            return .loadData(url: ratesURL, message: { data in
+                return State.Message.dataReceived(data)
+            })
         }
     }
 
@@ -75,6 +89,12 @@ class CurrencyViewController: UIViewController, UITextFieldDelegate {
         return result
     }()
 
+    var state = State() {
+        didSet {
+            updateViews()
+        }
+    }
+
     override func viewDidLoad() {
         super.viewDidLoad()
         view.backgroundColor = .white
@@ -93,29 +113,32 @@ class CurrencyViewController: UIViewController, UITextFieldDelegate {
         input.addTarget(self, action: #selector(inputChanged), for: .editingChanged)
     }
 
-    var state = State() {
-        didSet {
-            updateViews()
-        }
-    }
-
     func updateViews() {
         input.backgroundColor = state.inputAmount == nil ? .red : .white
         output.text = state.outputAmount.map { "\($0) USD" } ?? "..."
     }
 
     @objc func inputChanged() {
-        state.send(State.Message.setInputText(input.text))
+        send(State.Message.setInputText(input.text))
     }
 
     @objc func reload() {
-        URLSession
-            .shared
-            .dataTask(with: ratesURL) { (data, _, _) in
-                DispatchQueue.main.async { [weak self] in
-                    self?.state.send(.dataReceived(data))
-                }
+        send(.reload)
+    }
+
+    func send(_ message: State.Message) {
+        if let command = state.send(message) {
+            switch command {
+            case let .loadData(url: url, message: transform):
+                URLSession
+                    .shared
+                    .dataTask(with: url) { (data, _, _) in
+                        DispatchQueue.main.async { [weak self] in
+                            self?.send(transform(data))
+                        }
+                    }
+                    .resume()
             }
-            .resume()
+        }
     }
 }
