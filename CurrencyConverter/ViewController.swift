@@ -10,6 +10,27 @@ import UIKit
 
 let ratesURL = URL(string: "http://api.fixer.io/latest?base=EUR")!
 
+struct State {
+    var inputText: String?
+    var rate: Double?
+
+    var inputAmount: Double? {
+        guard
+            let text = inputText,
+            let number = Double(text)
+            else { return nil }
+        return number
+    }
+
+    var outputAmount: Double? {
+        guard
+            let input = inputAmount,
+            let rate = rate
+            else { return nil }
+        return input * rate
+    }
+}
+
 class CurrencyViewController: UIViewController, UITextFieldDelegate {
     let input: UITextField = {
         let result = UITextField()
@@ -52,15 +73,19 @@ class CurrencyViewController: UIViewController, UITextFieldDelegate {
         input.addTarget(self, action: #selector(inputChanged), for: .editingChanged)
     }
 
-    var rate: Double?
-    @objc func inputChanged() {
-        guard let text = input.text, let number = Double(text) else {
-            input.backgroundColor = .red
-            return
+    var state: State = State(inputText: nil, rate: nil) {
+        didSet {
+            updateViews()
         }
-        input.backgroundColor = .white
-        guard let rate = rate else { return }
-        output.text = "\(number * rate) USD"
+    }
+
+    func updateViews() {
+        input.backgroundColor = state.inputAmount == nil ? .red : .white
+        output.text = state.outputAmount.map { "\($0) USD" } ?? "..."
+    }
+
+    @objc func inputChanged() {
+        state.inputText = input.text
     }
 
     @objc func reload() {
@@ -75,8 +100,7 @@ class CurrencyViewController: UIViewController, UITextFieldDelegate {
                     let rate = dataDict["USD"]
                     else { return }
                 DispatchQueue.main.async { [weak self] in
-                    self?.rate = rate
-                    self?.inputChanged()
+                    self?.state.rate = rate
                 }
             }
             .resume()
