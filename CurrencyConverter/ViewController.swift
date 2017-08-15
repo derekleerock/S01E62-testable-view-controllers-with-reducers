@@ -11,8 +11,28 @@ import UIKit
 let ratesURL = URL(string: "http://api.fixer.io/latest?base=EUR")!
 
 struct State {
-    var inputText: String?
-    var rate: Double?
+    private var inputText: String? = nil
+    private var rate: Double? = nil
+
+    enum Message {
+        case setInputText(String?)
+        case dataReceived(Data?)
+    }
+
+    mutating func send(_ message: Message) {
+        switch message {
+        case .setInputText(let text):
+            inputText = text
+        case .dataReceived(let data):
+            guard
+                let data = data,
+                let json = try? JSONSerialization.jsonObject(with: data, options: []),
+                let dict = json as? [String : Any],
+                let dataDict = dict["rates"] as? [String : Double]
+                else { return }
+            rate = dataDict["USD"]
+        }
+    }
 
     var inputAmount: Double? {
         guard
@@ -73,7 +93,7 @@ class CurrencyViewController: UIViewController, UITextFieldDelegate {
         input.addTarget(self, action: #selector(inputChanged), for: .editingChanged)
     }
 
-    var state: State = State(inputText: nil, rate: nil) {
+    var state = State() {
         didSet {
             updateViews()
         }
@@ -85,22 +105,15 @@ class CurrencyViewController: UIViewController, UITextFieldDelegate {
     }
 
     @objc func inputChanged() {
-        state.inputText = input.text
+        state.send(State.Message.setInputText(input.text))
     }
 
     @objc func reload() {
         URLSession
             .shared
             .dataTask(with: ratesURL) { (data, _, _) in
-                guard
-                    let data = data,
-                    let json = try? JSONSerialization.jsonObject(with: data, options: []),
-                    let dict = json as? [String : Any],
-                    let dataDict = dict["rates"] as? [String : Double],
-                    let rate = dataDict["USD"]
-                    else { return }
                 DispatchQueue.main.async { [weak self] in
-                    self?.state.rate = rate
+                    self?.state.send(.dataReceived(data))
                 }
             }
             .resume()
